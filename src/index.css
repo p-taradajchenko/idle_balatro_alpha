@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@layer utilities {
+    .felt-table {
+        background-color: #14532d;
+        /* green-900 fallback */
+        background-image: radial-gradient(circle at center, #166534 0%, #14532d 60%, #052e16 100%);
+        /* Optional: Add a noise texture if we had an image, but gradient is good for now */
+        box-shadow: inset 0 0 50px #000000;
+    }
+
+    .card-glow {
+        box-shadow: 0 0 15px 2px rgba(250, 204, 21, 0.6);
+        /* Yellow-400 glow */
+    }
+}
+
+@keyframes floatUpFade {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateY(-20px) scale(1.1);
+    }
+}
+
+.animate-float-up {
+    animation: floatUpFade 0.8s ease-out forwards;
+}
