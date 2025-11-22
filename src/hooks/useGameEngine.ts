@@ -21,7 +21,7 @@ export const useGameEngine = () => {
     const [maxHandSize, setMaxHandSize] = useState(7);
 
     // Deck System
-    const [deck, setDeck] = useState<Card[]>([]);
+    const [deck, setDeck] = useState<Card[]>(generateStandardDeck());
     const [discardPile, setDiscardPile] = useState<Card[]>([]);
 
     const [jokers, setJokers] = useState<Joker[]>([]);
@@ -34,6 +34,14 @@ export const useGameEngine = () => {
     const [cps, setCps] = useState(0);
     const [lastHandScore, setLastHandScore] = useState({ chips: 0, mult: 0 });
     const [scoringCards, setScoringCards] = useState<Card[]>([]);
+
+    // Pack Opening State
+    const [packOpening, setPackOpening] = useState<{
+        isOpen: boolean;
+        type: Pack['type'];
+        options: (Card | Joker)[];
+        choicesRemaining: number;
+    } | null>(null);
 
     // -- PERSISTENCE --
 
@@ -148,12 +156,53 @@ export const useGameEngine = () => {
 
             // 4. Joker Scoring
             jokers.forEach(joker => {
-                if (joker.type === 'mult') handMult += joker.val;
-                if (joker.type === 'flat_chip') handChips += joker.val;
-                if (joker.type === 'hand_chip' && evaluation.type.name.toUpperCase() === joker.hand) handChips += joker.val;
+                const val = joker.val || 0;
+
+                // Standard Types
+                if (joker.type === 'mult') handMult += val;
+                if (joker.type === 'flat_chip') handChips += val;
+                if (joker.type === 'hand_chip' && evaluation.type.name.toUpperCase() === joker.hand) handChips += val;
+                if (joker.type === 'hand_mult' && evaluation.type.name.toUpperCase() === joker.hand) handMult += val;
+
+                // Suit Mult (and Fibonacci)
                 if (joker.type === 'suit_mult') {
-                    if (evaluation.scoringCards.some(c => c.suit === joker.suit)) {
-                        handMult += joker.val;
+                    if (joker.id === 'j_fibonacci') {
+                        // Fibonacci: Aces, 2, 3, 5, 8
+                        const fibRanks = [14, 2, 3, 5, 8];
+                        evaluation.scoringCards.forEach(c => {
+                            if (fibRanks.includes(c.value === 11 ? 14 : c.value)) { // Handle Ace value mapping if needed
+                                handMult += val;
+                            }
+                        });
+                    } else if (evaluation.scoringCards.some(c => c.suit === joker.suit)) {
+                        handMult += val;
+                    }
+                }
+
+                // Scaling (Current value)
+                if (joker.type === 'scaling') {
+                    if (joker.id === 'j_popcorn') handMult += val;
+                    if (joker.id === 'j_ice_cream') handChips += val;
+                }
+
+                // Utility
+                if (joker.type === 'utility') {
+                    if (joker.id === 'j_misprint') {
+                        handMult += Math.floor(Math.random() * 24);
+                    }
+                    if (joker.id === 'j_raised_fist') {
+                        if (handCards.length > 0) {
+                            // Find lowest rank card in hand
+                            const lowest = handCards.reduce((min, c) => c.value < min.value ? c : min, handCards[0]);
+                            handMult += (lowest.value * 2);
+                        }
+                    }
+                    if (joker.id === 'j_blackboard') {
+                        const allBlack = handCards.length > 0 && handCards.every(c => c.suit === 'spades' || c.suit === 'clubs');
+                        if (allBlack) handMult *= 3;
+                    }
+                    if (joker.id === 'j_cavendish_rare') {
+                        handMult *= 3;
                     }
                 }
             });
@@ -186,12 +235,44 @@ export const useGameEngine = () => {
         setBlindGoal(prev => Math.floor(prev * 1.8));
         setDrawCost(prev => Math.max(0, Math.floor(prev / 2)));
 
-        setJokers(prev => prev.filter(j => {
-            if (j.perishable) {
-                return Math.random() > 0.1;
-            }
-            return true;
-        }));
+        // Joker Effects (Economy & Scaling)
+        setJokers(prev => {
+            return prev.map(j => {
+                // Economy
+                if (j.id === 'j_golden') {
+                    setMoney(m => m + 4);
+                }
+                if (j.id === 'j_egg') {
+                    return { ...j, cost: j.cost + 3 };
+                }
+
+                // Scaling Decay
+                if (j.id === 'j_popcorn') {
+                    const newVal = (j.val || 0) - 4;
+                    if (newVal <= 0) return null; // Destroyed? Popcorn just loses mult. Does it die? Balatro wiki: "Commonly destroyed when it reaches 0".
+                    return { ...j, val: newVal };
+                }
+                if (j.id === 'j_ice_cream') {
+                    const newVal = (j.val || 0) - 5;
+                    if (newVal <= 0) return null;
+                    return { ...j, val: newVal };
+                }
+
+                return j;
+            }).filter((j): j is Joker => j !== null)
+                .filter(j => {
+                    // Perishable
+                    if (j.perishable) {
+                        if (j.id === 'j_cavendish') {
+                            if (Math.random() < (1 / 6)) return false; // 1 in 6
+                        }
+                        if (j.id === 'j_cavendish_rare') {
+                            if (Math.random() < (1 / 1000)) return false; // 1 in 1000
+                        }
+                    }
+                    return true;
+                });
+        });
 
         // Save on blind completion
         setTimeout(saveGame, 0);
@@ -247,6 +328,11 @@ export const useGameEngine = () => {
         setDiscardPile(prev => [...prev, card]);
     };
 
+    const getSpendingLimit = () => {
+        const hasCreditCard = jokers.some(j => j.id === 'j_credit_card');
+        return hasCreditCard ? -20 : 0;
+    };
+
     const buySlot = () => {
         const cost = 100 * Math.pow(10, maxSlots - 1);
         if (chips >= cost && maxSlots < 5) {
@@ -256,33 +342,95 @@ export const useGameEngine = () => {
     };
 
     const buyJoker = (jokerTemplate: Joker) => {
-        if (money >= jokerTemplate.cost && jokers.length < maxJokers) {
+        const limit = getSpendingLimit();
+        if (money - jokerTemplate.cost >= limit && jokers.length < maxJokers) {
             setMoney(prev => prev - jokerTemplate.cost);
             setJokers(prev => [...prev, { ...jokerTemplate, uid: Math.random().toString() }]);
         }
     };
 
     const buyPack = (pack: Pack) => {
-        if (money >= pack.cost) {
+        const limit = getSpendingLimit();
+        if (money - pack.cost >= limit) {
             setMoney(prev => prev - pack.cost);
 
             if (pack.type === 'standard') {
-                // Add 1 Enhanced Card to Hand if possible, else Discard Pile (effectively adding to deck)
-                const newCard = getRandomCard(true); // Enhanced = true
+                let count = 3;
+                let choices = 1;
 
-                if (handCards.length < maxHandSize) {
-                    setHandCards(prev => [...prev, newCard]);
-                } else {
-                    setDiscardPile(prev => [...prev, newCard]);
+                if (pack.id === 'p_standard_jumbo') { count = 5; choices = 1; }
+                if (pack.id === 'p_standard_mega') { count = 5; choices = 2; }
+
+                // Generate random cards
+                const options: Card[] = [];
+                for (let i = 0; i < count; i++) {
+                    options.push(getRandomCard(true));
                 }
+
+                setPackOpening({
+                    isOpen: true,
+                    type: 'standard',
+                    options,
+                    choicesRemaining: choices
+                });
             } else if (pack.type === 'buffoon') {
-                // Add 1 Random Joker
-                if (jokers.length < maxJokers) {
-                    const randomJoker = JOKERS_SHOP[Math.floor(Math.random() * JOKERS_SHOP.length)];
-                    setJokers(prev => [...prev, { ...randomJoker, uid: Math.random().toString() }]);
+                let count = 2;
+                let choices = 1;
+
+                if (pack.id === 'p_buffoon_jumbo') { count = 4; choices = 1; }
+                if (pack.id === 'p_buffoon_mega') { count = 4; choices = 2; }
+
+                // Generate random Jokers
+                const options: Joker[] = [];
+                for (let i = 0; i < count; i++) {
+                    options.push({
+                        ...JOKERS_SHOP[Math.floor(Math.random() * JOKERS_SHOP.length)],
+                        uid: Math.random().toString()
+                    });
                 }
+
+                setPackOpening({
+                    isOpen: true,
+                    type: 'buffoon',
+                    options,
+                    choicesRemaining: choices
+                });
             }
         }
+    };
+
+    const selectPackOption = (index: number) => {
+        if (!packOpening) return;
+
+        const selected = packOpening.options[index];
+
+        if (packOpening.type === 'standard') {
+            const card = selected as Card;
+            if (handCards.length < maxHandSize) {
+                setHandCards(prev => [...prev, card]);
+            } else {
+                setDiscardPile(prev => [...prev, card]);
+            }
+        } else if (packOpening.type === 'buffoon') {
+            const joker = selected as Joker;
+            if (jokers.length < maxJokers) {
+                setJokers(prev => [...prev, joker]);
+            }
+        }
+
+        setPackOpening(prev => {
+            if (!prev) return null;
+            const newChoices = prev.choicesRemaining - 1;
+            if (newChoices <= 0) {
+                return null; // Close modal
+            }
+            // Remove selected option from list to prevent duplicate picks if multiple choices allowed
+            return { ...prev, choicesRemaining: newChoices, options: prev.options.filter((_, i) => i !== index) };
+        });
+    };
+
+    const skipPack = () => {
+        setPackOpening(null);
     };
 
     const sellJoker = (index: number) => {
@@ -338,6 +486,7 @@ export const useGameEngine = () => {
         currentHand, cps, lastHandScore, maxHandSize, scoringCards,
         deck, discardPile,
         drawCardToHand, discardCard, buySlot, buyJoker, buyPack, sellJoker,
+        packOpening, selectPackOption, skipPack,
         handleDragStart, handleDropOnSlot, handleDragOver, getSlotCost,
         resetRun
     };

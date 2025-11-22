@@ -1,6 +1,7 @@
 import { ShoppingBag, Unlock, RotateCcw, Trash2 } from 'lucide-react';
 import { useGameEngine } from './hooks/useGameEngine';
 import { PlayingCard } from './components/PlayingCard';
+import { PackOpeningModal } from './components/PackOpeningModal';
 import { JOKERS_SHOP, PACKS } from './utils/pokerLogic';
 
 export default function App() {
@@ -11,7 +12,7 @@ export default function App() {
     deck, discardPile, maxHandSize,
     drawCardToHand, discardCard, buySlot, buyJoker, buyPack, sellJoker,
     handleDragStart, handleDropOnSlot, handleDragOver, getSlotCost,
-    resetRun
+    resetRun, packOpening, selectPackOption, skipPack
   } = useGameEngine();
 
   return (
@@ -62,7 +63,6 @@ export default function App() {
         {/* Left Column - Game Area */}
         <div className="flex-1 flex flex-col gap-6 min-w-0">
 
-          {/* Stats Bar */}
           {/* Stats Bar */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl shadow-sm">
@@ -251,6 +251,17 @@ export default function App() {
         </div>
 
       </main>
+
+      {/* Modals */}
+      {packOpening && (
+        <PackOpeningModal
+          isOpen={packOpening.isOpen}
+          type={packOpening.type as any}
+          options={packOpening.options}
+          onSelect={selectPackOption}
+          onSkip={skipPack}
+        />
+      )}
     </div>
   );
 }
